@@ -9,6 +9,9 @@ extern "C"
 /* Includes ------------------------------------------------------------------*/
 #include "stm32f4xx_hal.h"
 
+    const uint16_t SAMPLES = 1024;
+    const uint16_t CHANNELS = 4;
+
     void Error_Handler(void);
 
 /* Private defines -----------------------------------------------------------*/
