@@ -2,15 +2,37 @@
 
 This project demonstrates the use of **STM32 ADC with DMA** to collect data from multiple channels, calculate their amplitudes, send debug information over UART, and visualize ADC data via ITM for real-time plotting. It uses **STM32Cube HAL** and is designed for STM32F4 series microcontrollers.
 
+
+## Project Structure
+```plaintext
+.
+├── src/
+│   ├── main.cpp           # Main application logic
+│   ├── periph_init.cpp    # Peripheral initialization
+│   ├── periph_init.h      # Header file for peripheral initialization
+│
+├── include/
+│   ├── main.h             # Common definitions
+│
+├── platformio.ini         # PlatformIO configuration
+```
+
 ---
 
-### **Features**
-1. **ADC with DMA:**
+## Requirements
+- **Hardware**: STM32F4 Discovery (STM32F401VCT6) or compatible board.
+- **Software**: PlatformIO with the STM32Cube framework.
+- **Debugger**: ST-Link for debugging and ITM logging.
+---
+
+## Features
+
+1. **ADC** with **DMA** in circular mode to acquire data from 4 channels.
    - Configured for 4 channels.
    - Collects 1024 samples per channel.
    - Data is stored in an interleaved buffer.
 
-2. **Amplitude Calculation:**
+2. **Real-time Amplitude Calculation** for each channel.
    - Calculates the maximum amplitude (difference between max and min) for each channel.
 
 3. **Debug Output:**
@@ -19,7 +41,7 @@ This project demonstrates the use of **STM32 ADC with DMA** to collect data from
 4. **ITM Streaming for Plotting:**
    - Streams ADC data for all channels through ITM (Instrumentation Trace Macrocell) for real-time plotting.
 
-5. **LED Control:**
+5. **LED control based on the highest amplitude.:**
    - Indicates the channel with the highest amplitude by lighting up an LED.
 
 ---
@@ -66,7 +88,7 @@ int _write(int file, char *ptr, int len)
 
 #### **4. Amplitude Calculation**
 ```c
-uint32_t Calculate_Max_Amplitude(uint32_t *buffer, uint32_t channel, uint32_t num_samples, uint32_t channels)
+uint16_t Calculate_Max_Amplitude(uint16_t *buffer, uint8_t channel, uint32_t num_samples, uint8_t channels)
 ```
 - Computes the maximum amplitude of the specified channel from interleaved ADC data.
 

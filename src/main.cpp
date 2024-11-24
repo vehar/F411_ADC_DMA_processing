@@ -3,10 +3,10 @@
 #include "stm32f4xx_hal.h"
 #include <stdio.h>
 
-bool data_rdy_f = false;
+volatile bool data_rdy_f = false;
 
 // ADC buffer to store conversion results
-__attribute__((aligned(4))) uint16_t adc_values[CHANNELS * SAMPLES] = { 0 };
+__attribute__((aligned(2))) uint16_t adc_values[CHANNELS * SAMPLES] = { 0 };
 
 void Set_LED_State(uint8_t index)
 {
@@ -18,7 +18,7 @@ void Set_LED_State(uint8_t index)
 uint16_t Calculate_Max_Amplitude(uint16_t *buffer, uint8_t channel, uint32_t num_samples,
                                  uint8_t channels)
 {
-    uint16_t max_val = 0, min_val = UINT32_MAX;
+    uint16_t max_val = 0, min_val = UINT16_MAX;
 
     for (uint16_t i = channel; i < num_samples * channels; i += channels)
     {
@@ -101,7 +101,6 @@ int main(void)
 #endif
             // Control LEDs based on ADC result
             Set_LED_State(max_channel);
-            // HAL_Delay(1000);
             data_rdy_f = false; // Processed
         }
         // Perform other tasks here (e.g., debugging or communication)
@@ -159,4 +158,4 @@ extern "C"
     }
 
     void DMA2_Stream0_IRQHandler(void) { HAL_DMA_IRQHandler(&hdma_adc1); }
-}
+} //extern "C"
