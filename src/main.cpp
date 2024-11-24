@@ -141,13 +141,6 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef *adcHandle)
     if (adcHandle->Instance == ADC1)
     {
         __HAL_RCC_ADC1_CLK_DISABLE();
-
-        /**ADC1 GPIO Configuration
-        PA0-WKUP     ------> ADC1_IN0
-        PA1     ------> ADC1_IN1
-        PA2     ------> ADC1_IN2
-        PA3     ------> ADC1_IN3
-        */
         HAL_GPIO_DeInit(GPIOA, GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3);
         HAL_DMA_DeInit(adcHandle->DMA_Handle);
     }
@@ -159,13 +152,6 @@ void MX_DMA_Init(void)
     __HAL_RCC_DMA2_CLK_ENABLE();
     HAL_NVIC_SetPriority(DMA2_Stream0_IRQn, 0, 0);
     HAL_NVIC_EnableIRQ(DMA2_Stream0_IRQn);
-}
-
-int _write(int file, char *ptr, int len)
-{
-    for (int i = 0; i < len; i++)
-        ITM_SendChar((*ptr++));
-    return len;
 }
 
 void Set_LED_State(uint8_t index)
@@ -180,14 +166,11 @@ uint32_t Calculate_Max_Amplitude(uint32_t *buffer, uint32_t channel, uint32_t nu
 {
     uint32_t max_val = 0, min_val = UINT32_MAX;
 
-    // Iterate over samples for the specified channel
-    for (uint32_t i = 0; i < num_samples; ++i)
+    for (uint32_t i = channel; i < num_samples * channels; i += channels)
     {
-        uint32_t val = buffer[i * channels + channel]; // Access interleaved data
-        if (val > max_val)
-            max_val = val;
-        if (val < min_val)
-            min_val = val;
+        uint32_t val = buffer[i];
+        max_val = (val > max_val) ? val : max_val;
+        min_val = (val < min_val) ? val : min_val;
     }
 
     return max_val - min_val; // Amplitude
@@ -196,17 +179,25 @@ uint32_t Calculate_Max_Amplitude(uint32_t *buffer, uint32_t channel, uint32_t nu
 // Main application entry
 int main(void)
 {
-    HAL_Init();
     SystemClock_Config();
     PeriphCommonClock_Config();
+    HAL_Init();
+
     // Initialize peripherals
     MX_GPIO_Init();
     MX_DMA_Init();
     MX_ADC1_Init();
     MX_USART1_UART_Init();
 
-    if (HAL_ADC_Start_DMA(&hadc1, adc_values, SAMPLES * SAMPLES) != HAL_OK)
+    if (HAL_ADC_Start_DMA(&hadc1, adc_values, CHANNELS * SAMPLES) != HAL_OK)
         Error_Handler();
+
+    // Initial test
+    for (int i = 0; i < 4; i++)
+    {
+        Set_LED_State(i);
+        HAL_Delay(500);
+    }
 
     // Main loop
     while (1)
@@ -233,6 +224,7 @@ int main(void)
                 }
             }
 
+#ifdef DEBUG
             // Output results via UART
             printf("Channel Amplitudes: ");
             for (int channel = 0; channel < CHANNELS; ++channel)
@@ -244,12 +236,15 @@ int main(void)
             //     ITM_SendChar((uint8_t)(adc_values[i] & 0xFF)); // Example: LSB of ADC value
             for (int i = 0; i < SAMPLES; ++i)
             {
-                ITM->PORT[0].u8 = (uint8_t)(adc_values[i * CHANNELS + 0] & 0xFF); // Channel 0
-                ITM->PORT[1].u8 = (uint8_t)(adc_values[i * CHANNELS + 1] & 0xFF); // Channel 1
-                ITM->PORT[2].u8 = (uint8_t)(adc_values[i * CHANNELS + 2] & 0xFF); // Channel 2
-                ITM->PORT[3].u8 = (uint8_t)(adc_values[i * CHANNELS + 3] & 0xFF); // Channel 3
+                // if (i % 10 == 0) // Send every 10th sample to reduce ITM traffic
+                {
+                    ITM->PORT[0].u8 = (uint8_t)(adc_values[i * CHANNELS + 0] & 0xFF); // Channel 0
+                    ITM->PORT[1].u8 = (uint8_t)(adc_values[i * CHANNELS + 1] & 0xFF); // Channel 1
+                    ITM->PORT[2].u8 = (uint8_t)(adc_values[i * CHANNELS + 2] & 0xFF); // Channel 2
+                    ITM->PORT[3].u8 = (uint8_t)(adc_values[i * CHANNELS + 3] & 0xFF); // Channel 3
+                }
             }
-
+#endif
             // Control LEDs based on ADC result
             Set_LED_State(max_channel);
             // HAL_Delay(1000);
@@ -265,22 +260,34 @@ void SystemClock_Config(void)
     RCC_OscInitTypeDef RCC_OscInitStruct = { 0 };
     RCC_ClkInitTypeDef RCC_ClkInitStruct = { 0 };
 
-    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-    RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+    // Configure the main internal oscillator (HSI)
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+    RCC_OscInitStruct.HSIState = RCC_HSI_ON;  // Enable HSI
+    RCC_OscInitStruct.HSEState = RCC_HSE_OFF; // Ensure HSE is disabled
     RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-    RCC_OscInitStruct.PLL.PLLM = 4;
-    RCC_OscInitStruct.PLL.PLLN = 192;
-    RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV4;
-    RCC_OscInitStruct.PLL.PLLQ = 8;
-    HAL_RCC_OscConfig(&RCC_OscInitStruct);
+    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+    RCC_OscInitStruct.PLL.PLLM = 16;            // Adjust for 16 MHz HSI
+    RCC_OscInitStruct.PLL.PLLN = 192;           // Multiplier
+    RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV4; // Divider for 48 MHz PLL output
+    RCC_OscInitStruct.PLL.PLLQ = 8;             // Divider for USB/SDIO/Random
+    if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+        Error_Handler();
 
-    RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK;
-    RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-    RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-    RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
-    RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
-    HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3);
+    // Configure the clock source and prescalers
+    RCC_ClkInitStruct.ClockType =
+        RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
+    RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK; // Use PLL as SYSCLK
+    RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;        // No division for HCLK
+    RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;         // APB1 (low-speed peripherals)
+    RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;         // APB2 (high-speed peripherals)
+    if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3) != HAL_OK)
+        Error_Handler();
+
+    // Disable the Window Watchdog Clock (if not used)
+    __HAL_RCC_WWDG_CLK_DISABLE();
+
+    // Update the SystemCoreClock variable
+    SystemCoreClockUpdate();
 }
 
 void PeriphCommonClock_Config(void)
@@ -288,14 +295,18 @@ void PeriphCommonClock_Config(void)
     RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = { 0 };
 
     PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_I2S;
-    PeriphClkInitStruct.PLLI2S.PLLI2SN = 200;
+
+    // Conditional compilation for microcontroller-specific fields
+#if defined(STM32F411xE) || defined(STM32F469xx) // Add families that support PLLI2SM
     PeriphClkInitStruct.PLLI2S.PLLI2SM = 5;
+#endif
+
+    PeriphClkInitStruct.PLLI2S.PLLI2SN = 200;
     PeriphClkInitStruct.PLLI2S.PLLI2SR = 2;
+
     if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
         Error_Handler();
 }
-
-void DMA2_Stream0_IRQHandler(void) { HAL_DMA_IRQHandler(&hdma_adc1); }
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
@@ -303,9 +314,10 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
     {
         data_rdy_f = true; // Handle the data in the adc_values buffer
 
-        // Restart the ADC conversion
-        if (HAL_ADC_Start_DMA(&hadc1, adc_values, 4 * 1024) != HAL_OK)
-            Error_Handler();
+        // Restart the ADC conversion in manual mode
+        // This might not be necessary as circular mode automatically restarts
+        // if (HAL_ADC_Start_DMA(&hadc1, adc_values, CHANNELS * SAMPLES) != HAL_OK)
+        //     Error_Handler();
     }
 }
 
@@ -326,4 +338,25 @@ void Error_Handler(void)
         HAL_GPIO_TogglePin(LD4_GPIO_Port, LD4_Pin); // Toggle an LED
         HAL_Delay(500);                             // 500 ms delay
     }
+}
+
+// For all interrupt handlers for proper linking
+extern "C"
+{
+    int _write(int file, char *ptr, int len)
+    {
+        // for (int i = 0; i < len; i++)
+        //     ITM_SendChar((*ptr++));
+
+        HAL_UART_Transmit(&huart1, (uint8_t *)ptr, len, HAL_MAX_DELAY);
+        return len;
+    }
+
+    void SysTick_Handler(void)
+    {
+        HAL_IncTick(); // Increment HAL time base
+        HAL_SYSTICK_IRQHandler();
+    }
+
+    void DMA2_Stream0_IRQHandler(void) { HAL_DMA_IRQHandler(&hdma_adc1); }
 }
