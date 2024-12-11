@@ -3,6 +3,7 @@
 #include "periph_init.h"
 #include "stm32f4xx_hal.h"
 #include "stm32f4xx_hal_tim.h"
+#include <math.h>
 #include <stdio.h>
 
 volatile bool data_rdy_f = false;
@@ -38,6 +39,75 @@ uint16_t Calculate_Max_Amplitude(uint16_t *buffer, uint8_t channel, uint32_t num
     return max_val - min_val; // Amplitude
 }
 
+// Estimate angle based on N microphone amplitudes
+float EstimateAngle(const uint16_t *amplitudes, const float *angles, uint8_t num_mics)
+{
+    // Ensure num_mics is valid to avoid division by zero
+    if (num_mics == 0)
+        return 0.0;
+
+    float X = 0.0, Y = 0.0;
+
+    for (uint8_t i = 0; i < num_mics; i++)
+    {
+        float rad = angles[i] * M_PI / 180.0; // Convert angle to radians
+        X += (float)amplitudes[i] * cosf(rad);
+        Y += (float)amplitudes[i] * sinf(rad);
+    }
+
+    float angle = atan2f(Y, X) * 180.0 / M_PI; // Convert result to degrees
+
+    // Normalize the angle to the range [0, 360)
+    if (angle < 0.0)
+        angle += 360.0;
+
+    return angle;
+}
+/**
+ * @brief Map an estimated angle to a circular LED array and set a gradient hue.
+ * @param[in] angle Estimated angle in degrees (0-360).
+ * @param[in] num_leds Total number of LEDs in the circular array.
+ */
+void MapAngleToLEDs(float angle, uint8_t num_leds, uint8_t intensity)
+{
+    // Ensure num_leds is valid to prevent division by zero
+    if (num_leds == 0)
+        return;
+
+    float step = 360.0f / num_leds; // Angle covered by each LED
+    uint8_t primary_led = (uint8_t)(fmodf(angle, 360.0f) / step) % num_leds; // Main LED index
+
+    for (uint8_t i = 0; i < num_leds; i++)
+    {
+        // Calculate distance from the primary LED, considering wraparound
+        int16_t distance = (int16_t)(i - primary_led);
+        if (distance < -num_leds / 2)
+            distance += num_leds;
+        else if (distance > num_leds / 2)
+            distance -= num_leds;
+
+        // Compute the absolute distance for symmetric hue mapping
+        uint16_t abs_distance = abs(distance);
+
+        // Apply a nonlinear mapping for hue based on the distance
+        float normalized_distance = (float)abs_distance / (num_leds / 2); // Range: 0.0 to 1.0
+        uint8_t hue_variation =
+            (uint8_t)((1.0f - normalized_distance) * 255); // Hue decreases with distance
+        uint8_t hue =
+            (primary_led * (255 / num_leds) + hue_variation) % 255; // Base hue + variation
+
+        // Set the HSV color for the LED
+        ARGB_SetHSV(i, hue, 255, intensity);
+    }
+
+    // Apply changes to the LED array
+    ARGB_Show();
+}
+
+#define NUM_LEDS 16
+#define NUM_MICS 4
+float angles[NUM_MICS] = { 0.0, 90.0, 180.0, 270.0 }; // Microphone angles
+
 // Main application entry
 int main(void)
 {
@@ -51,30 +121,29 @@ int main(void)
     MX_ADC1_Init();
     // MX_USART1_UART_Init();
     MX_TIM2_Init(); //
-    ARGB_Init();    // Initialize the ARGB library
 
     if (HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_values, CHANNELS * SAMPLES) != HAL_OK)
         Error_Handler();
 
-    // Initial test
-    for (int i = 0; i < 4; i++)
-    {
-        Set_LED_State(i);
-        HAL_Delay(500);
-    }
-
+    ARGB_Init(); // Initialize the ARGB library
     ARGB_Clear();
     while (!ARGB_Show())
         ;
+    ARGB_SetBrightness(100); // Set brightness (0-255)
 
-    ARGB_SetBrightness(100);     // Set brightness (0-255)
-    ARGB_SetRGB(0, 255, 0, 0);   // Set first LED to Red
-    ARGB_SetRGB(1, 0, 255, 0);   // Set second LED to Green
-    ARGB_SetRGB(2, 0, 0, 255);   // Set third LED to Blue
-    ARGB_SetRGB(3, 2, 255, 255); //
-    while (!ARGB_Show())
-        ;
-
+    /*
+        // Initial test
+        for (int i = 0; i < 4; i++)
+        {
+            Set_LED_State(i);
+            HAL_Delay(500);
+        }
+        for (int i = 0; i < 360; i++)
+        {
+            ARGB_SetRGB(i, 255, 0, 0);
+            MapAngleToLEDs(i, NUM_LEDS, 100);
+            HAL_Delay(100);
+        }*/
     // Main loop
     while (1)
     {
@@ -121,6 +190,10 @@ int main(void)
                 }
             }
 #endif
+
+            float estimated_angle = EstimateAngle(amplitude, angles, CHANNELS);
+            MapAngleToLEDs(estimated_angle, CHANNELS, max_amplitude);
+
             // Control LEDs based on ADC result
             Set_LED_State(max_channel);
             data_rdy_f = false; // Processed
