@@ -13,7 +13,6 @@ extern "C"
     const uint16_t CHANNELS = 4;
 
     void Error_Handler(void);
-
 /* Private defines -----------------------------------------------------------*/
 #define DATA_Ready_Pin GPIO_PIN_2
 #define DATA_Ready_GPIO_Port GPIOE

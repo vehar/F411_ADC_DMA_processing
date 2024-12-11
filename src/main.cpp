@@ -1,6 +1,8 @@
 #include "main.h"
+#include "ARGB.h"
 #include "periph_init.h"
 #include "stm32f4xx_hal.h"
+#include "stm32f4xx_hal_tim.h"
 #include <stdio.h>
 
 volatile bool data_rdy_f = false;
@@ -12,7 +14,13 @@ void Set_LED_State(uint8_t index)
 {
     uint16_t pins[] = { LD4_Pin, LD3_Pin, LD5_Pin, LD6_Pin };
     for (int i = 0; i < 4; i++)
-        HAL_GPIO_WritePin(GPIOD, pins[i], (i == index) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    {
+        GPIO_PinState state = (i == index) ? GPIO_PIN_SET : GPIO_PIN_RESET;
+        HAL_GPIO_WritePin(GPIOD, pins[i], state);
+
+        ARGB_SetRGB(i, state ? 255 : 0, 0, 0);
+    }
+    ARGB_Show();
 }
 
 uint16_t Calculate_Max_Amplitude(uint16_t *buffer, uint8_t channel, uint32_t num_samples,
@@ -33,15 +41,17 @@ uint16_t Calculate_Max_Amplitude(uint16_t *buffer, uint8_t channel, uint32_t num
 // Main application entry
 int main(void)
 {
+    HAL_Init();
     SystemClock_Config();
     PeriphCommonClock_Config();
-    HAL_Init();
 
     // Initialize peripherals
-    MX_GPIO_Init();
     MX_DMA_Init();
+    MX_GPIO_Init();
     MX_ADC1_Init();
-    MX_USART1_UART_Init();
+    // MX_USART1_UART_Init();
+    MX_TIM2_Init(); //
+    ARGB_Init();    // Initialize the ARGB library
 
     if (HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_values, CHANNELS * SAMPLES) != HAL_OK)
         Error_Handler();
@@ -52,6 +62,18 @@ int main(void)
         Set_LED_State(i);
         HAL_Delay(500);
     }
+
+    ARGB_Clear();
+    while (!ARGB_Show())
+        ;
+
+    ARGB_SetBrightness(100);     // Set brightness (0-255)
+    ARGB_SetRGB(0, 255, 0, 0);   // Set first LED to Red
+    ARGB_SetRGB(1, 0, 255, 0);   // Set second LED to Green
+    ARGB_SetRGB(2, 0, 0, 255);   // Set third LED to Blue
+    ARGB_SetRGB(3, 2, 255, 255); //
+    while (!ARGB_Show())
+        ;
 
     // Main loop
     while (1)
@@ -158,4 +180,6 @@ extern "C"
     }
 
     void DMA2_Stream0_IRQHandler(void) { HAL_DMA_IRQHandler(&hdma_adc1); }
-} //extern "C"
+
+    void DMA1_Stream6_IRQHandler(void) { HAL_DMA_IRQHandler(&hdma_tim2_ch2_ch4); }
+} // extern "C"
