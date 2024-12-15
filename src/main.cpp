@@ -8,21 +8,10 @@
 
 volatile bool data_rdy_f = false;
 
+float angles[ADC_CHANNELS] = { 0.0, 90.0, 180.0, 270.0 }; // Microphone angles
+
 // ADC buffer to store conversion results
-__attribute__((aligned(2))) uint16_t adc_values[CHANNELS * SAMPLES] = { 0 };
-
-void Set_LED_State(uint8_t index)
-{
-    uint16_t pins[] = { LD4_Pin, LD3_Pin, LD5_Pin, LD6_Pin };
-    for (int i = 0; i < 4; i++)
-    {
-        GPIO_PinState state = (i == index) ? GPIO_PIN_SET : GPIO_PIN_RESET;
-        HAL_GPIO_WritePin(GPIOD, pins[i], state);
-
-        ARGB_SetRGB(i, state ? 255 : 0, 0, 0);
-    }
-    ARGB_Show();
-}
+__attribute__((aligned(2))) uint16_t adc_values[ADC_CHANNELS * SAMPLES] = { 0 };
 
 uint16_t Calculate_Max_Amplitude(uint16_t *buffer, uint8_t channel, uint32_t num_samples,
                                  uint8_t channels)
@@ -89,12 +78,12 @@ void MapAngleToLEDs(float angle, uint8_t num_leds, uint8_t intensity)
         // Compute the absolute distance for symmetric hue mapping
         uint16_t abs_distance = abs(distance);
 
-        // Apply a nonlinear mapping for hue based on the distance
-        float normalized_distance = (float)abs_distance / (num_leds / 2); // Range: 0.0 to 1.0
-        uint8_t hue_variation =
-            (uint8_t)((1.0f - normalized_distance) * 255); // Hue decreases with distance
-        uint8_t hue =
-            (primary_led * (255 / num_leds) + hue_variation) % 255; // Base hue + variation
+        // Apply a nonlinear mapping for hue based on the distance 0.0 to 1.0
+        float normalized_distance = (float)abs_distance / (num_leds / 2);
+
+        // Hue decreases with distance
+        uint8_t hue_variation = (uint8_t)((1.0f - normalized_distance) * 255);
+        uint8_t hue = hue_variation > 175 ? 175 : hue_variation; // trimm hue a little
 
         // Set the HSV color for the LED
         ARGB_SetHSV(i, hue, 255, intensity);
@@ -103,10 +92,6 @@ void MapAngleToLEDs(float angle, uint8_t num_leds, uint8_t intensity)
     // Apply changes to the LED array
     ARGB_Show();
 }
-
-#define NUM_LEDS 16
-#define NUM_MICS 4
-float angles[NUM_MICS] = { 0.0, 90.0, 180.0, 270.0 }; // Microphone angles
 
 // Main application entry
 int main(void)
@@ -122,7 +107,7 @@ int main(void)
     // MX_USART1_UART_Init();
     MX_TIM2_Init(); //
 
-    if (HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_values, CHANNELS * SAMPLES) != HAL_OK)
+    if (HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_values, ADC_CHANNELS * SAMPLES) != HAL_OK)
         Error_Handler();
 
     ARGB_Init(); // Initialize the ARGB library
@@ -131,36 +116,37 @@ int main(void)
         ;
     ARGB_SetBrightness(100); // Set brightness (0-255)
 
-    /*
-        // Initial test
-        for (int i = 0; i < 4; i++)
-        {
-            Set_LED_State(i);
-            HAL_Delay(500);
-        }
-        for (int i = 0; i < 360; i++)
-        {
-            ARGB_SetRGB(i, 255, 0, 0);
-            MapAngleToLEDs(i, NUM_LEDS, 100);
-            HAL_Delay(100);
-        }*/
+#ifdef DEBUG
+    // Initial test
+    for (int i = 0; i < 4; i++)
+    {
+        Set_LED_State(i);
+        HAL_Delay(500);
+    }
+    for (int i = 0; i < 360; i++)
+    {
+        ARGB_SetRGB(i, 255, 0, 0);
+        MapAngleToLEDs(i, NUM_LEDS, 100);
+        HAL_Delay(100);
+    }
+#endif
     // Main loop
     while (1)
     {
         // Wait for data
         if (data_rdy_f)
         {
-            uint16_t amplitude[CHANNELS] = { 0 };
+            uint16_t amplitude[ADC_CHANNELS] = { 0 };
 
             // Calculate amplitude for each channel
-            for (int i = 0; i < CHANNELS; ++i)
-                amplitude[i] = Calculate_Max_Amplitude(adc_values, i, SAMPLES, CHANNELS);
+            for (int i = 0; i < ADC_CHANNELS; ++i)
+                amplitude[i] = Calculate_Max_Amplitude(adc_values, i, SAMPLES, ADC_CHANNELS);
 
             // Find the channel with the highest amplitude
             uint16_t max_amplitude = amplitude[0];
             int max_channel = 0;
 
-            for (int channel = 0; channel < CHANNELS; ++channel)
+            for (int channel = 0; channel < ADC_CHANNELS; ++channel)
             {
                 if (amplitude[channel] > max_amplitude)
                 {
@@ -172,31 +158,42 @@ int main(void)
 #ifdef DEBUG
             // Output results via UART
             printf("Channel Amplitudes: ");
-            for (int channel = 0; channel < CHANNELS; ++channel)
+            for (int channel = 0; channel < ADC_CHANNELS; ++channel)
                 printf("%lu ", amplitude[channel]);
             printf("\n");
 
             // Stream ADC data via ITM for plotting
-            // for (int i = 0; i < SAMPLES * CHANNELS; ++i)
+            // for (int i = 0; i < SAMPLES * ADC_CHANNELS; ++i)
             //     ITM_SendChar((uint8_t)(adc_values[i] & 0xFF)); // Example: LSB of ADC value
             for (int i = 0; i < SAMPLES; ++i)
             {
                 // if (i % 10 == 0) // Send every 10th sample to reduce ITM traffic
                 {
-                    ITM->PORT[0].u8 = (uint8_t)(adc_values[i * CHANNELS + 0] & 0xFF); // Channel 0
-                    ITM->PORT[1].u8 = (uint8_t)(adc_values[i * CHANNELS + 1] & 0xFF); // Channel 1
-                    ITM->PORT[2].u8 = (uint8_t)(adc_values[i * CHANNELS + 2] & 0xFF); // Channel 2
-                    ITM->PORT[3].u8 = (uint8_t)(adc_values[i * CHANNELS + 3] & 0xFF); // Channel 3
+                    ITM->PORT[0].u8 =
+                        (uint8_t)(adc_values[i * ADC_CHANNELS + 0] & 0xFF); // Channel 0
+                    ITM->PORT[1].u8 =
+                        (uint8_t)(adc_values[i * ADC_CHANNELS + 1] & 0xFF); // Channel 1
+                    ITM->PORT[2].u8 =
+                        (uint8_t)(adc_values[i * ADC_CHANNELS + 2] & 0xFF); // Channel 2
+                    ITM->PORT[3].u8 =
+                        (uint8_t)(adc_values[i * ADC_CHANNELS + 3] & 0xFF); // Channel 3
                 }
             }
 #endif
 
-            float estimated_angle = EstimateAngle(amplitude, angles, CHANNELS);
-            MapAngleToLEDs(estimated_angle, CHANNELS, max_amplitude);
+            if (max_amplitude > 400)
+            {
+                // HAL_ADC_Stop_DMA(&hadc1);
 
-            // Control LEDs based on ADC result
-            Set_LED_State(max_channel);
-            data_rdy_f = false; // Processed
+                float estimated_angle = EstimateAngle(amplitude, angles, ADC_CHANNELS);
+                MapAngleToLEDs(estimated_angle + 180, NUM_LEDS, max_amplitude / 40);
+
+                // Control LEDs based on ADC result
+                // Set_LED_State(max_channel);
+                data_rdy_f = false; // Processed
+
+                // HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_values, ADC_CHANNELS * SAMPLES);
+            }
         }
         // Perform other tasks here (e.g., debugging or communication)
     }
@@ -210,7 +207,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 
         // Restart the ADC conversion in manual mode
         // This might not be necessary as circular mode automatically restarts
-        // if (HAL_ADC_Start_DMA(&hadc1, adc_values, CHANNELS * SAMPLES) != HAL_OK)
+        // if (HAL_ADC_Start_DMA(&hadc1, adc_values, ADC_CHANNELS * SAMPLES) != HAL_OK)
         //     Error_Handler();
     }
 }
@@ -231,6 +228,16 @@ void Error_Handler(void)
     {
         HAL_GPIO_TogglePin(LD4_GPIO_Port, LD4_Pin); // Toggle an LED
         HAL_Delay(500);                             // 500 ms delay
+    }
+}
+
+void Set_LED_State(uint8_t index)
+{
+    uint16_t pins[] = { LD4_Pin, LD3_Pin, LD5_Pin, LD6_Pin };
+    for (int i = 0; i < 4; i++)
+    {
+        GPIO_PinState state = (i == index) ? GPIO_PIN_SET : GPIO_PIN_RESET;
+        HAL_GPIO_WritePin(GPIOD, pins[i], state);
     }
 }
 

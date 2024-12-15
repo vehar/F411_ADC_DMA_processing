@@ -169,26 +169,46 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef *adcHandle)
     }
 }
 
-// ADC Initialization
+// ADC Initialization sample rate 400kHz
+/*
+ADC Conversion Time:
+
+The ADC conversion time is determined by the number of cycles required for a single conversion.
+For 12-bit resolution, the ADC needs 12.5 cycles.
+The sampling time is configured as ADC_SAMPLETIME_3CYCLES, which means an additional 3 cycles per
+conversion. Total conversion time in cycles: Total Cycles per Conversion = 12.5+3=15.5 cycles Total
+conversion time in seconds: Conversion Time=Total Cycles per Conversion / ADC Clock = 15.5/25  MHz =
+0.62 𝜇𝑠. Conversion Time= ADC Clock / Total Cycles per Conversion​ = 25MHz / 15.5
+=0.62μs. Number of Channels: The ADC is set up in scan mode with 4 channels. Each scan involves
+converting all 4 channels sequentially. Time to complete a scan: 1 / Scan Time= Conversion Time ×
+Number of Channels = 0.62  𝜇𝑠 × 4 = 2.48  𝜇𝑠
+
+Scan Time=Conversion Time×Number of Channels=0.62μs×4=2.48μs.
+
+Sampling Rate:
+The sampling rate is the reciprocal of the scan time:
+Sampling Rate = 1 / Scan Time = 1 / 2.48𝜇𝑠≈403.2 kHz
+*/
+
 void MX_ADC1_Init(void)
 {
     ADC_ChannelConfTypeDef sConfig = { 0 };
 
     // Configure ADC instance
     hadc1.Instance = ADC1;
-    hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV6;
+    hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2;
     hadc1.Init.Resolution = ADC_RESOLUTION_12B;
     hadc1.Init.ScanConvMode = ENABLE;
     hadc1.Init.ContinuousConvMode = ENABLE;
     hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-    hadc1.Init.NbrOfConversion = CHANNELS; // Sequential scan
+    hadc1.Init.NbrOfConversion = ADC_CHANNELS; // Sequential scan
     hadc1.Init.DMAContinuousRequests = ENABLE;
     hadc1.Init.EOCSelection = ADC_EOC_SEQ_CONV;
     if (HAL_ADC_Init(&hadc1) != HAL_OK)
         Error_Handler();
 
     // Configure ADC channels
-    for (int channel = 0; channel < CHANNELS; ++channel)
+    for (int channel = 0; channel < ADC_CHANNELS; ++channel)
     {
         sConfig.Channel = ADC_CHANNEL_0 + channel;
         sConfig.Rank = channel + 1;

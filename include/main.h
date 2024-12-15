@@ -9,8 +9,9 @@ extern "C"
 /* Includes ------------------------------------------------------------------*/
 #include "stm32f4xx_hal.h"
 
-    const uint16_t SAMPLES = 1024;
-    const uint16_t CHANNELS = 4;
+#define NUM_LEDS 16
+    const uint16_t SAMPLES = 16; // SR = 400kHz = 10s / T = 5s p-p
+    const uint16_t ADC_CHANNELS = 4;
 
     void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
